@@ -12,7 +12,11 @@ const MODES = {
 let modeName = 'jelly';
 let dpr = 1, width = 0, height = 0;
 let pointer = { active: false, id: null, x: 0, y: 0, startX: 0, startY: 0, speed: 0 };
-let shape = { x: 0, y: 0, vx: 0, vy: 0, sx: 1, sy: 1, vsx: 0, vsy: 0, pullX: 0, pullY: 0, blink: 0, surprised: 0, wobble: 1 };
+let shape = {
+  x: 0, y: 0, vx: 0, vy: 0, sx: 1, sy: 1, vsx: 0, vsy: 0, pullX: 0, pullY: 0,
+  restX: 0, restY: 0, restSx: 1, restSy: 1, restPullX: 0, restPullY: 0,
+  dragPullX: 0, dragPullY: 0, blink: 0, surprised: 0, wobble: 1
+};
 let muted = false, audioContext = null, lastInteraction = performance.now();
 
 function resize() {
@@ -26,6 +30,8 @@ function baseSize() { return Math.min(width * 0.34, height * 0.29, 210); }
 function reset(sound = true) {
   shape.x = width / 2; shape.y = height * .55; shape.vx = shape.vy = 0;
   shape.sx = shape.sy = 1; shape.vsx = shape.vsy = 0; shape.pullX = shape.pullY = 0;
+  shape.restX = shape.x; shape.restY = shape.y; shape.restSx = shape.restSy = 1;
+  shape.restPullX = shape.restPullY = shape.dragPullX = shape.dragPullY = 0;
   shape.wobble = 1.4; shape.surprised = 0; pointer.active = false;
   if (sound) playSound('release', .7);
 }
@@ -41,6 +47,7 @@ playground.addEventListener('pointerdown', (e) => {
   if (pointer.active || !insideSlime(e.offsetX, e.offsetY)) return;
   e.preventDefault(); playground.setPointerCapture(e.pointerId);
   Object.assign(pointer, { active: true, id: e.pointerId, x: e.offsetX, y: e.offsetY, startX: e.offsetX, startY: e.offsetY, speed: 0 });
+  shape.dragPullX = shape.pullX; shape.dragPullY = shape.pullY;
   shape.surprised = 1; shape.vsy += .08; shape.vsx -= .04; lastInteraction = performance.now();
   hint.classList.add('hidden'); playSound('tap');
 });
@@ -54,8 +61,11 @@ playground.addEventListener('pointermove', (e) => {
 function release(e) {
   if (!pointer.active || (e && e.pointerId !== pointer.id)) return;
   const distance = Math.hypot(pointer.x - pointer.startX, pointer.y - pointer.startY);
-  pointer.active = false; shape.wobble = Math.min(2.5, .7 + distance / 100); shape.vx -= shape.pullX * .065; shape.vy -= shape.pullY * .065;
-  shape.pullX = shape.pullY = 0; shape.surprised = distance > 70 ? .8 : 0; playSound('release', Math.min(1.4, .7 + distance / 230));
+  pointer.active = false; shape.wobble = Math.min(2.5, .7 + distance / 100);
+  shape.restX = shape.x; shape.restY = shape.y; shape.restSx = shape.sx; shape.restSy = shape.sy;
+  shape.restPullX = shape.pullX; shape.restPullY = shape.pullY;
+  shape.vx = shape.vy = shape.vsx = shape.vsy = 0;
+  shape.surprised = distance > 70 ? .8 : 0; playSound('release', Math.min(1.4, .7 + distance / 230));
 }
 playground.addEventListener('pointerup', release); playground.addEventListener('pointercancel', release);
 
@@ -116,15 +126,16 @@ function loop(t) {
   const p = MODES[modeName], r = baseSize();
   if (pointer.active) {
     const dx = pointer.x - pointer.startX, dy = pointer.y - pointer.startY;
-    const max = r * p.stretch; const len = Math.hypot(dx,dy) || 1, scale = Math.min(1,max/len);
-    const tx=dx*scale, ty=dy*scale; shape.pullX += (tx-shape.pullX)*p.follow; shape.pullY += (ty-shape.pullY)*p.follow;
+    const targetX = shape.dragPullX + dx, targetY = shape.dragPullY + dy;
+    const max = r * p.stretch; const len = Math.hypot(targetX,targetY) || 1, scale = Math.min(1,max/len);
+    const tx=targetX*scale, ty=targetY*scale; shape.pullX += (tx-shape.pullX)*p.follow; shape.pullY += (ty-shape.pullY)*p.follow;
     const horiz=Math.abs(shape.pullX)/r, vert=shape.pullY/r;
     shape.sx += ((1+horiz*.45+Math.max(0,vert)*.35)-shape.sx)*.15; shape.sy += ((1-horiz*.22-Math.max(0,vert)*.28)-shape.sy)*.15;
     shape.x += ((width/2+shape.pullX*.12)-shape.x)*.06; shape.y += ((height*.55+shape.pullY*.1)-shape.y)*.06;
   } else {
-    shape.vsx += (1-shape.sx)*p.spring; shape.vsy += (1-shape.sy)*p.spring; shape.vsx*=p.damping;shape.vsy*=p.damping;shape.sx+=shape.vsx;shape.sy+=shape.vsy;
-    shape.vx+=(width/2-shape.x)*p.spring*.4;shape.vy+=(height*.55-shape.y)*p.spring*.4;shape.vx*=p.damping;shape.vy*=p.damping;shape.x+=shape.vx;shape.y+=shape.vy;
-    shape.pullX*=.78;shape.pullY*=.78;
+    shape.vsx += (shape.restSx-shape.sx)*p.spring; shape.vsy += (shape.restSy-shape.sy)*p.spring; shape.vsx*=p.damping;shape.vsy*=p.damping;shape.sx+=shape.vsx;shape.sy+=shape.vsy;
+    shape.vx+=(shape.restX-shape.x)*p.spring*.4;shape.vy+=(shape.restY-shape.y)*p.spring*.4;shape.vx*=p.damping;shape.vy*=p.damping;shape.x+=shape.vx;shape.y+=shape.vy;
+    shape.pullX+=(shape.restPullX-shape.pullX)*.22;shape.pullY+=(shape.restPullY-shape.pullY)*.22;
     if (performance.now()-lastInteraction>12000 && Math.random()<.002) {shape.vsy=-.07*p.bounce;shape.vy=-2.6*p.bounce;shape.wobble=1;shape.blink=1;setTimeout(()=>shape.blink=0,350);lastInteraction=performance.now()-7000;}
   }
   draw(t);
