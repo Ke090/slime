@@ -11,6 +11,8 @@ const generic = { addEventListener() {}, classList: { add() {}, toggle() {} }, s
 const sandbox = { console, Math, performance, assert, handlers, devicePixelRatio: 1, requestAnimationFrame() {}, setTimeout() {}, window: { addEventListener() {} }, document: { getElementById: id => id === 'slimeCanvas' ? canvas : id === 'playground' ? playground : generic, querySelectorAll: () => [] } };
 vm.createContext(sandbox);
 const test = `
+assert(!isTwisted([{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 2 }, { x: 0, y: 2 }]), 'a simple outline must be accepted');
+assert(isTwisted([{ x: 0, y: 0 }, { x: 2, y: 2 }, { x: 0, y: 2 }, { x: 2, y: 0 }]), 'a crossed outline must be detected');
 const initial = restOffsets.map(point => ({ ...point }));
 handlers.pointerdown({ pointerId: 1, offsetX: 560, offsetY: 330, preventDefault() {} });
 handlers.pointermove({ pointerId: 1, offsetX: 690, offsetY: 250, preventDefault() {} });
@@ -24,6 +26,17 @@ const center = centroid();
 const drift = Math.max(...points.map((point, index) => Math.hypot(point.x - center.x - retained[index].x, point.y - center.y - retained[index].y)));
 assert(drift < 10, 'the gel must settle around its retained material shape');
 assert(Math.abs(Math.abs(polygonArea()) - restArea) / restArea < .08, 'pressure must approximately preserve volume');
+
+reset(false);
+handlers.pointerdown({ pointerId: 2, offsetX: 560, offsetY: 330, preventDefault() {} });
+const path = [[640, 250], [400, 170], [220, 330], [400, 500], [650, 340]];
+for (const [x, y] of path) {
+  handlers.pointermove({ pointerId: 2, offsetX: x, offsetY: y, preventDefault() {} });
+  for (let i = 0; i < 90; i++) simulate(FIXED_STEP);
+  assert(!isTwisted(), 'the material outline must not cross itself during an aggressive drag');
+}
+handlers.pointerup({ pointerId: 2, offsetX: 650, offsetY: 340 });
+assert(!isTwisted(), 'a twisted outline must not be retained as the rest shape');
 `;
 vm.runInContext(fs.readFileSync('game.js', 'utf8') + test, sandbox);
-console.log('soft-body deformation, shape memory, and pressure checks passed');
+console.log('soft-body deformation, shape memory, pressure, and topology checks passed');
