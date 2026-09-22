@@ -14,10 +14,12 @@ const test = `
 assert(!isTwisted([{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 2 }, { x: 0, y: 2 }]), 'a simple outline must be accepted');
 assert(isTwisted([{ x: 0, y: 0 }, { x: 2, y: 2 }, { x: 0, y: 2 }, { x: 2, y: 0 }]), 'a crossed outline must be detected');
 const initial = restOffsets.map(point => ({ ...point }));
+const initialArea = restArea;
 handlers.pointerdown({ pointerId: 1, offsetX: 560, offsetY: 330, preventDefault() {} });
 handlers.pointermove({ pointerId: 1, offsetX: 690, offsetY: 250, preventDefault() {} });
 for (let i = 0; i < 180; i++) simulate(FIXED_STEP);
 handlers.pointerup({ pointerId: 1, offsetX: 690, offsetY: 250 });
+assert.strictEqual(restArea, initialArea, 'releasing must not redefine the slime volume');
 const retained = restOffsets.map(point => ({ ...point }));
 const deformation = Math.max(...retained.map((point, index) => Math.hypot(point.x - initial[index].x, point.y - initial[index].y)));
 assert(deformation > 20, 'dragging must deform the particle shape rather than only scale an ellipse');
@@ -25,7 +27,7 @@ for (let i = 0; i < 600; i++) simulate(FIXED_STEP);
 const center = centroid();
 const drift = Math.max(...points.map((point, index) => Math.hypot(point.x - center.x - retained[index].x, point.y - center.y - retained[index].y)));
 assert(drift < 10, 'the gel must settle around its retained material shape');
-assert(Math.abs(Math.abs(polygonArea()) - restArea) / restArea < .08, 'pressure must approximately preserve volume');
+assert(Math.abs(Math.abs(polygonArea()) - restArea) / restArea < .001, 'the area constraint must preserve volume');
 
 reset(false);
 handlers.pointerdown({ pointerId: 2, offsetX: 560, offsetY: 330, preventDefault() {} });
