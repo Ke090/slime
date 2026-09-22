@@ -31,6 +31,28 @@ function polygonArea(vertices = points) {
   }
   return area / 2;
 }
+function segmentsIntersect(a, b, c, d) {
+  const cross = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const onSegment = (p, q, r) => q.x >= Math.min(p.x, r.x) && q.x <= Math.max(p.x, r.x) &&
+    q.y >= Math.min(p.y, r.y) && q.y <= Math.max(p.y, r.y);
+  const abC = cross(a, b, c), abD = cross(a, b, d);
+  const cdA = cross(c, d, a), cdB = cross(c, d, b);
+  if (((abC > 0 && abD < 0) || (abC < 0 && abD > 0)) &&
+      ((cdA > 0 && cdB < 0) || (cdA < 0 && cdB > 0))) return true;
+  return (abC === 0 && onSegment(a, c, b)) || (abD === 0 && onSegment(a, d, b)) ||
+    (cdA === 0 && onSegment(c, a, d)) || (cdB === 0 && onSegment(c, b, d));
+}
+function isTwisted(vertices = points) {
+  for (let i = 0; i < vertices.length; i++) {
+    const nextI = (i + 1) % vertices.length;
+    for (let j = i + 2; j < vertices.length; j++) {
+      const nextJ = (j + 1) % vertices.length;
+      if (i === nextJ) continue;
+      if (segmentsIntersect(vertices[i], vertices[nextI], vertices[j], vertices[nextJ])) return true;
+    }
+  }
+  return false;
+}
 function captureRestShape() {
   const center = centroid();
   restOffsets = points.map(point => ({ x: point.x - center.x, y: point.y - center.y }));
@@ -115,6 +137,7 @@ function addSpring(a, b, restLength, stiffness, dt) {
 }
 function simulate(dt) {
   const mode = MODES[modeName], center = centroid();
+  const previousPositions = points.map(point => ({ x: point.x, y: point.y }));
 
   // Structural springs and second-neighbour springs provide surface tension.
   for (let i = 0; i < points.length; i++) {
@@ -160,6 +183,16 @@ function simulate(dt) {
     if (point.x < margin || point.x > width - margin) { point.x = Math.max(margin, Math.min(width - margin, point.x)); point.vx *= -.25; }
     if (point.y < margin || point.y > height - margin) { point.y = Math.max(margin, Math.min(height - margin, point.y)); point.vy *= -.25; }
   });
+
+  // The outline is a material ring: its particles may stretch but must never
+  // pass through one another. Roll back a step that would fold the polygon,
+  // otherwise that fold can be captured as the new rest shape on release.
+  if (isTwisted()) {
+    points.forEach((point, index) => {
+      point.x = previousPositions[index].x; point.y = previousPositions[index].y;
+      point.vx *= -.08; point.vy *= -.08;
+    });
+  }
 }
 
 function blobPath() {
