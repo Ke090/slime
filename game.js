@@ -53,10 +53,10 @@ function isTwisted(vertices = points) {
   }
   return false;
 }
-function captureRestShape() {
+function captureRestShape(updateArea = true) {
   const center = centroid();
   restOffsets = points.map(point => ({ x: point.x - center.x, y: point.y - center.y }));
-  restArea = Math.max(1, Math.abs(polygonArea()));
+  if (updateArea) restArea = Math.max(1, Math.abs(polygonArea()));
 }
 function reset(sound = true) {
   const r = baseSize(), cx = width / 2, cy = height * .55;
@@ -121,7 +121,9 @@ function release(event) {
   pointer.active = false;
   // The deformed particle arrangement becomes the gel's new material rest shape.
   // Subsequent simulation jiggles around this shape instead of restoring an ellipse.
-  captureRestShape();
+  // Keep the material's original area: a release may change the remembered
+  // silhouette, but it must not make that silhouette the new (smaller) volume.
+  captureRestShape(false);
   points.forEach(point => { point.vx *= .35; point.vy *= .35; });
   surprised = pointer.speed > 8 ? .8 : 0;
   playSound('release', Math.min(1.4, .7 + pointer.speed / 45));
@@ -134,6 +136,28 @@ function addSpring(a, b, restLength, stiffness, dt) {
   const impulse = (length - restLength) * stiffness * dt / length;
   const x = dx * impulse, y = dy * impulse;
   a.vx += x; a.vy += y; b.vx -= x; b.vy -= y;
+}
+function preserveArea() {
+  // Project the particle ring onto the constant-area constraint. Unlike the
+  // pressure force above, this positional correction cannot accumulate a
+  // small volume loss over many simulation steps.
+  for (let iteration = 0; iteration < 2; iteration++) {
+    const signedArea = polygonArea();
+    const targetArea = (signedArea < 0 ? -1 : 1) * restArea;
+    const gradients = points.map((point, index) => {
+      const previous = points[(index + points.length - 1) % points.length];
+      const next = points[(index + 1) % points.length];
+      return { x: (next.y - previous.y) * .5, y: (previous.x - next.x) * .5 };
+    });
+    const denominator = gradients.reduce((sum, gradient) =>
+      sum + gradient.x * gradient.x + gradient.y * gradient.y, 0);
+    if (denominator < 1e-8) return;
+    const correction = (targetArea - signedArea) / denominator;
+    points.forEach((point, index) => {
+      point.x += gradients[index].x * correction;
+      point.y += gradients[index].y * correction;
+    });
+  }
 }
 function simulate(dt) {
   const mode = MODES[modeName], center = centroid();
@@ -183,6 +207,8 @@ function simulate(dt) {
     if (point.x < margin || point.x > width - margin) { point.x = Math.max(margin, Math.min(width - margin, point.x)); point.vx *= -.25; }
     if (point.y < margin || point.y > height - margin) { point.y = Math.max(margin, Math.min(height - margin, point.y)); point.vy *= -.25; }
   });
+
+  preserveArea();
 
   // The outline is a material ring: its particles may stretch but must never
   // pass through one another. Roll back a step that would fold the polygon,
